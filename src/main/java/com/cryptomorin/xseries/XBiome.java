@@ -22,11 +22,13 @@
 package com.cryptomorin.xseries;
 
 import com.google.common.base.Enums;
+import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.Biome;
 import org.bukkit.block.Block;
+import org.bukkit.plugin.java.JavaPlugin;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -358,7 +360,7 @@ public enum XBiome {
      * @since 1.0.0
      */
     @Nonnull
-    public CompletableFuture<Void> setBiome(@Nonnull Location start, @Nonnull Location end) {
+    public CompletableFuture<Void> setBiome(@Nonnull JavaPlugin plugin, @Nonnull Location start, @Nonnull Location end) {
         Objects.requireNonNull(start, "Start location cannot be null");
         Objects.requireNonNull(end, "End location cannot be null");
         Objects.requireNonNull(biome, () -> "Unsupported biome: " + this.name());
@@ -378,7 +380,9 @@ public enum XBiome {
                 for (int y = heightMin; y < heightMax; y += 4) {
                     for (int z = start.getBlockZ(); z < end.getBlockZ(); z++) {
                         Block block = new Location(world, x, y, z).getBlock();
-                        if (block.getBiome() != biome) block.setBiome(biome);
+                        Bukkit.getRegionScheduler().run(plugin,block.getLocation(),task -> {
+                            if (block.getBiome() != biome) block.setBiome(biome);
+                        });
                     }
                 }
             }

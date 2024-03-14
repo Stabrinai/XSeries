@@ -56,6 +56,10 @@
 
     <repositories>
         <repository>
+            <id>papermc</id>
+            <url>https://repo.papermc.io/repository/maven-public/</url>
+        </repository>
+        <repository>
             <id>nms-repo</id>
             <url>https://repo.codemc.org/repository/nms/</url>
  <!--            https://repo.codemc.io/service/rest/repository/browse/nms/org/spigotmc/spigot/-->
@@ -80,6 +84,12 @@
 <!--            <scope>provided</scope>-->
 <!--        </dependency>-->
         <dependency>
+            <groupId>dev.folia</groupId>
+            <artifactId>folia-api</artifactId>
+            <version>1.20.4-R0.1-SNAPSHOT</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
             <groupId>org.spigotmc</groupId>
             <artifactId>spigot</artifactId>
             <version>${spigotVersion}</version>
@@ -95,19 +105,19 @@
 
     <build>
         <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-source-plugin</artifactId>
-                <version>3.2.0</version>
-                <executions>
-                    <execution>
-                        <id>attach-sources</id>
-                        <goals>
-                            <goal>jar-no-fork</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
+<!--            <plugin>-->
+<!--                <groupId>org.apache.maven.plugins</groupId>-->
+<!--                <artifactId>maven-source-plugin</artifactId>-->
+<!--                <version>3.2.0</version>-->
+<!--                <executions>-->
+<!--                    <execution>-->
+<!--                        <id>attach-sources</id>-->
+<!--                        <goals>-->
+<!--                            <goal>jar-no-fork</goal>-->
+<!--                        </goals>-->
+<!--                    </execution>-->
+<!--                </executions>-->
+<!--            </plugin>-->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-javadoc-plugin</artifactId>
@@ -129,20 +139,20 @@
                     </execution>
                 </executions>
             </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-gpg-plugin</artifactId>
-                <version>1.6</version>
-                <executions>
-                    <execution>
-                        <id>sign-artifacts</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>sign</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
+<!--            <plugin>-->
+<!--                <groupId>org.apache.maven.plugins</groupId>-->
+<!--                <artifactId>maven-gpg-plugin</artifactId>-->
+<!--                <version>1.6</version>-->
+<!--                <executions>-->
+<!--                    <execution>-->
+<!--                        <id>sign-artifacts</id>-->
+<!--                        <phase>verify</phase>-->
+<!--                        <goals>-->
+<!--                            <goal>sign</goal>-->
+<!--                        </goals>-->
+<!--                    </execution>-->
+<!--                </executions>-->
+<!--            </plugin>-->
             <plugin>
                 <groupId>org.sonatype.plugins</groupId>
                 <artifactId>nexus-staging-maven-plugin</artifactId>
@@ -185,22 +195,22 @@
                     </execution>
                 </executions>
             </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.0.0-M5</version>
-                <configuration>
-                    <!--<failIfNoTests>true</failIfNoTests>-->
-                    <trimStackTrace>false</trimStackTrace>
-                    <workingDirectory>${basedir}/target/tests</workingDirectory>
-<!--                    <dependenciesToScan>-->
-<!--                        <dependency>*:spigot:*:*:1.16.5-R0.1-SNAPSHOT</dependency>-->
-<!--                    </dependenciesToScan>-->
-                    <includes>
-                        <include>**/DummySpigot.java</include>
-                    </includes>
-                </configuration>
-            </plugin>
+<!--            <plugin>-->
+<!--                <groupId>org.apache.maven.plugins</groupId>-->
+<!--                <artifactId>maven-surefire-plugin</artifactId>-->
+<!--                <version>3.0.0-M5</version>-->
+<!--                <configuration>-->
+<!--                    &lt;!&ndash;<failIfNoTests>true</failIfNoTests>&ndash;&gt;-->
+<!--                    <trimStackTrace>false</trimStackTrace>-->
+<!--                    <workingDirectory>${basedir}/target/tests</workingDirectory>-->
+<!--&lt;!&ndash;                    <dependenciesToScan>&ndash;&gt;-->
+<!--&lt;!&ndash;                        <dependency>*:spigot:*:*:1.16.5-R0.1-SNAPSHOT</dependency>&ndash;&gt;-->
+<!--&lt;!&ndash;                    </dependenciesToScan>&ndash;&gt;-->
+<!--                    <includes>-->
+<!--                        <include>**/DummySpigot.java</include>-->
+<!--                    </includes>-->
+<!--                </configuration>-->
+<!--            </plugin>-->
         </plugins>
 
         <testSourceDirectory>src/test</testSourceDirectory>
