@@ -21,6 +21,8 @@
  */
 package com.cryptomorin.xseries;
 
+import com.cryptomorin.xseries.profiles.builder.XSkull;
+import com.cryptomorin.xseries.profiles.objects.Profileable;
 import com.google.common.base.Enums;
 import com.google.common.base.Strings;
 import com.google.common.collect.Multimap;
@@ -51,8 +53,6 @@ import org.bukkit.inventory.meta.trim.TrimPattern;
 import org.bukkit.map.MapView;
 import org.bukkit.material.MaterialData;
 import org.bukkit.material.SpawnEgg;
-import org.bukkit.potion.Potion;
-import org.bukkit.potion.PotionData;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionType;
 
@@ -77,41 +77,64 @@ import static com.cryptomorin.xseries.XMaterial.supports;
  * <a href="https://hub.spigotmc.org/javadocs/spigot/org/bukkit/inventory/ItemStack.html">ItemStack</a>
  *
  * @author Crypto Morin
- * @version 7.4.0
+ * @version 7.5.1
  * @see XMaterial
  * @see XPotion
- * @see SkullUtils
+ * @see XSkull
  * @see XEnchantment
  * @see ItemStack
  */
 public final class XItemStack {
     public static final ItemFlag[] ITEM_FLAGS = ItemFlag.values();
+    public static final boolean SUPPORTS_CUSTOM_MODEL_DATA;
 
     /**
-     * Because item metas cannot be applied to AIR, apparently.
+     * Because {@link ItemMeta} cannot be applied to {@link Material#AIR}.
      */
-    private static final XMaterial DEFAULT_MATERIAL = XMaterial.NETHER_PORTAL;
+    private static final XMaterial DEFAULT_MATERIAL = XMaterial.BARRIER;
+    private static final boolean SUPPORTS_POTION_COLOR;
+
+    static {
+        boolean supportsPotionColor = false;
+        try {
+            Class.forName("org.bukkit.inventory.meta.PotionMeta").getMethod("setColor", Color.class);
+            supportsPotionColor = true;
+        } catch (Throwable ignored) {
+        }
+
+        SUPPORTS_POTION_COLOR = supportsPotionColor;
+    }
+
+    static {
+        boolean supportsCustomModelData = false;
+        try {
+            ItemMeta.class.getMethod("hasCustomModelData");
+            supportsCustomModelData = true;
+        } catch (Throwable ignored) {
+        }
+
+        SUPPORTS_CUSTOM_MODEL_DATA = supportsCustomModelData;
+    }
 
     private XItemStack() {
     }
 
-    public static boolean isDefaultItem(ItemStack item) {
-        return DEFAULT_MATERIAL.isSimilar(item);
-    }
-
     private static BlockState safeBlockState(BlockStateMeta meta) {
-        // Due to a bug in the latest paper v1.9-1.10 (and some older v1.11) versions.
-        // java.lang.IllegalStateException: Missing blockState for BREWING_STAND_ITEM
-        // BREWING_STAND_ITEM, ENCHANTMENT_TABLE, REDSTONE_COMPARATOR
-        // https://hub.spigotmc.org/stash/projects/SPIGOT/repos/craftbukkit/diff/src/main/java/org/bukkit/craftbukkit/inventory/CraftMetaBlockState.java?until=b6ad714e853042def52620befe9bc85d0137cd71
         try {
             return meta.getBlockState();
         } catch (IllegalStateException ex) {
+            // Due to a bug in the latest paper v1.9-1.10 (and some older v1.11) versions.
+            // java.lang.IllegalStateException: Missing blockState for BREWING_STAND_ITEM
+            // BREWING_STAND_ITEM, ENCHANTMENT_TABLE, REDSTONE_COMPARATOR
+            // https://hub.spigotmc.org/stash/projects/SPIGOT/repos/craftbukkit/diff/src/main/java/org/bukkit/craftbukkit/inventory/CraftMetaBlockState.java?until=b6ad714e853042def52620befe9bc85d0137cd71
             if (ex.getMessage().toLowerCase(Locale.ENGLISH).contains("missing blockstate")) {
                 return null;
             } else {
                 throw ex;
             }
+        } catch (ClassCastException ex) {
+            // java.lang.ClassCastException: net.minecraft.server.v1_9_R2.TileEntityDispenser cannot be cast to net.minecraft.server.v1_9_R2.TileEntityDropper
+            return null;
         }
     }
 
@@ -221,7 +244,7 @@ public final class XItemStack {
                 config.set(entry, enchant.getValue());
             }
         } else if (meta instanceof SkullMeta) {
-            String skull = SkullUtils.getSkinValue(meta);
+            String skull = XSkull.of(meta).getProfileString();
             if (skull != null) config.set("skull", skull);
         } else if (meta instanceof BannerMeta) {
             BannerMeta banner = (BannerMeta) meta;
@@ -243,18 +266,27 @@ public final class XItemStack {
                 }
 
                 if (!effects.isEmpty()) config.set("effects", effects);
-                PotionData potionData = potion.getBasePotionData();
-                config.set("base-effect", potionData.getType().name() + ", " + potionData.isExtended() + ", " + potionData.isUpgraded());
+                PotionType basePotionType = potion.getBasePotionType();
+                // PotionData potionData = potion.getBasePotionData();
+                // config.set("base-effect", potionData.getType().name() + ", " + potionData.isExtended() + ", " + potionData.isUpgraded());
 
-                if (potion.hasColor()) config.set("color", potion.getColor().asRGB());
+                config.set("base-type", basePotionType.name());
 
+                config.set("effects", potion.getCustomEffects().stream().map(x -> {
+                    NamespacedKey type = x.getType().getKey();
+                    String typeStr = type.getNamespace() + ':' + type.getKey();
+                    return typeStr + ", " + x.getDuration() + ", " + x.getAmplifier();
+                }));
+
+                if (SUPPORTS_POTION_COLOR && potion.hasColor()) config.set("color", potion.getColor().asRGB());
             } else {
                 // Check for water bottles in 1.8
-                if (item.getDurability() != 0) {
-                    Potion potion = Potion.fromItemStack(item);
-                    config.set("level", potion.getLevel());
-                    config.set("base-effect", potion.getType().name() + ", " + potion.hasExtendedDuration() + ", " + potion.isSplash());
-                }
+                // Potion class is now removed...
+                // if (item.getDurability() != 0) {
+                //     Potion potion = Potion.fromItemStack(item);
+                //     config.set("level", potion.getLevel());
+                //     config.set("base-effect", potion.getType().name() + ", " + potion.hasExtendedDuration() + ", " + potion.isSplash());
+                // }
             }
         } else if (meta instanceof FireworkMeta) {
             FireworkMeta firework = (FireworkMeta) meta;
@@ -428,7 +460,7 @@ public final class XItemStack {
      */
     @Nonnull
     public static ItemStack deserialize(@Nonnull ConfigurationSection config) {
-        return edit(new ItemStack(DEFAULT_MATERIAL.parseMaterial()), config, Function.identity(), null);
+        return edit(DEFAULT_MATERIAL.parseItem(), config, Function.identity(), null);
     }
 
     /**
@@ -461,7 +493,7 @@ public final class XItemStack {
     public static ItemStack deserialize(@Nonnull ConfigurationSection config,
                                         @Nonnull Function<String, String> translator,
                                         @Nullable Consumer<Exception> restart) {
-        return edit(new ItemStack(DEFAULT_MATERIAL.parseMaterial()), config, translator, restart);
+        return edit(DEFAULT_MATERIAL.parseItem(), config, translator, restart);
     }
 
 
@@ -629,15 +661,21 @@ public final class XItemStack {
 
         // Special Items
         if (meta instanceof SkullMeta) {
+            // Make it lenient to support placeholders.
             String skull = config.getString("skull");
-            if (skull != null) SkullUtils.applySkin(meta, skull);
+            if (skull != null) {
+                // Since this is also an editing method, allow empty strings to
+                // represent the instruction to completely remove an existing profile.
+                if (skull.isEmpty()) XSkull.of(meta).profile(Profileable.detect(skull)).removeProfile();
+                else XSkull.of(meta).profile(Profileable.detect(skull)).lenient().apply();
+            }
         } else if (meta instanceof BannerMeta) {
             BannerMeta banner = (BannerMeta) meta;
             ConfigurationSection patterns = config.getConfigurationSection("patterns");
 
             if (patterns != null) {
                 for (String pattern : patterns.getKeys(false)) {
-                    PatternType type = PatternType.getByIdentifier(pattern);
+                    PatternType type = Enums.getIfPresent(PatternType.class, pattern).orNull();
                     if (type == null)
                         type = Enums.getIfPresent(PatternType.class, pattern.toUpperCase(Locale.ENGLISH)).or(PatternType.BASE);
                     DyeColor color = Enums.getIfPresent(DyeColor.class, patterns.getString(pattern).toUpperCase(Locale.ENGLISH)).or(DyeColor.WHITE);
@@ -660,33 +698,32 @@ public final class XItemStack {
                     if (effect.hasChance()) potion.addCustomEffect(effect.getEffect(), true);
                 }
 
-                String baseEffect = config.getString("base-effect");
-                if (!Strings.isNullOrEmpty(baseEffect)) {
-                    List<String> split = split(baseEffect, ',');
-                    PotionType type = Enums.getIfPresent(PotionType.class, split.get(0).trim().toUpperCase(Locale.ENGLISH)).or(PotionType.UNCRAFTABLE);
-                    boolean extended = split.size() != 1 && Boolean.parseBoolean(split.get(1).trim());
-                    boolean upgraded = split.size() > 2 && Boolean.parseBoolean(split.get(2).trim());
-                    PotionData potionData = new PotionData(type, extended, upgraded);
-                    potion.setBasePotionData(potionData);
+                String baseType = config.getString("base-type");
+                if (!Strings.isNullOrEmpty(baseType)) {
+                    XPotion.matchXPotion(baseType).ifPresent(x -> potion.setBasePotionType(x.getPotionType()));
                 }
 
-                if (config.contains("color")) {
+                if (SUPPORTS_POTION_COLOR && config.contains("color")) {
                     potion.setColor(Color.fromRGB(config.getInt("color")));
                 }
             } else {
-
-                if (config.contains("level")) {
-                    int level = config.getInt("level");
-                    String baseEffect = config.getString("base-effect");
-                    if (!Strings.isNullOrEmpty(baseEffect)) {
-                        List<String> split = split(baseEffect, ',');
-                        PotionType type = Enums.getIfPresent(PotionType.class, split.get(0).trim().toUpperCase(Locale.ENGLISH)).or(PotionType.SLOWNESS);
-                        boolean extended = split.size() != 1 && Boolean.parseBoolean(split.get(1).trim());
-                        boolean splash = split.size() > 2 && Boolean.parseBoolean(split.get(2).trim());
-
-                        item = (new Potion(type, level, splash, extended)).toItemStack(1);
-                    }
-                }
+                // What do we do for 1.8?
+                // if (config.contains("level")) {
+                //     int level = config.getInt("level");
+                //     String baseEffect = config.getString("base-effect");
+                //     if (!Strings.isNullOrEmpty(baseEffect)) {
+                //         List<String> split = split(baseEffect, ',');
+                //         PotionType type = Enums.getIfPresent(PotionType.class, split.get(0).trim().toUpperCase(Locale.ENGLISH)).or(PotionType.SLOWNESS);
+                //         boolean extended = split.size() != 1 && Boolean.parseBoolean(split.get(1).trim());
+                //         boolean splash = split.size() > 2 && Boolean.parseBoolean(split.get(2).trim());
+                //
+                //         item = (splash ? XMaterial.SPLASH_POTION : XMaterial.POTION).parseItem();
+                //         PotionMeta potion = (PotionMeta) item.getItemMeta();
+                //         // potion.addCustomEffect(XPotion.matchXPotion(type).buildPotionEffect(extended ? 3 : 1, level), true);
+                //         item.setItemMeta(potion);
+                //         item = (new Potion(type, level, splash, extended)).toItemStack(1);
+                //     }
+                // }
             }
         } else if (meta instanceof BlockStateMeta) {
             BlockStateMeta bsm = (BlockStateMeta) meta;
@@ -723,7 +760,7 @@ public final class XItemStack {
 
                 if (patterns != null) {
                     for (String pattern : patterns.getKeys(false)) {
-                        PatternType type = PatternType.getByIdentifier(pattern);
+                        PatternType type = Enums.getIfPresent(PatternType.class, pattern).orNull();
                         if (type == null)
                             type = Enums.getIfPresent(PatternType.class, pattern.toUpperCase(Locale.ENGLISH)).or(PatternType.BASE);
                         DyeColor color = Enums.getIfPresent(DyeColor.class, patterns.getString(pattern).toUpperCase(Locale.ENGLISH)).or(DyeColor.WHITE);
@@ -984,7 +1021,7 @@ public final class XItemStack {
                 enchant.ifPresent(xEnchantment -> meta.addEnchant(xEnchantment.getEnchant(), enchants.getInt(ench), true));
             }
         } else if (config.getBoolean("glow")) {
-            meta.addEnchant(XEnchantment.DURABILITY.getEnchant(), 1, false);
+            meta.addEnchant(XEnchantment.UNBREAKING.getEnchant(), 1, false);
             meta.addItemFlags(ItemFlag.HIDE_ENCHANTS); // HIDE_UNBREAKABLE is not for UNBREAKING enchant.
         }
 

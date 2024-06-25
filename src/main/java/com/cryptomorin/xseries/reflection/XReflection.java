@@ -19,39 +19,34 @@
  * FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
  * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-package com.cryptomorin.xseries;
+package com.cryptomorin.xseries.reflection;
 
+import com.cryptomorin.xseries.reflection.jvm.classes.DynamicClassHandle;
+import com.cryptomorin.xseries.reflection.jvm.classes.StaticClassHandle;
+import com.cryptomorin.xseries.reflection.minecraft.MinecraftClassHandle;
+import com.cryptomorin.xseries.reflection.minecraft.MinecraftMapping;
+import com.cryptomorin.xseries.reflection.minecraft.MinecraftPackage;
 import org.bukkit.Bukkit;
-import org.bukkit.entity.Player;
+import org.jetbrains.annotations.ApiStatus;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
- * <b>ReflectionUtils</b> - Reflection handler for NMS and CraftBukkit.<br>
- * Caches the packet related methods and is asynchronous.
- * <p>
- * This class does not handle null checks as most of the requests are from the
- * other utility classes that already handle null checks.
- * <p>
- * <a href="https://wiki.vg/Protocol">Clientbound Packets</a> are considered fake
- * updates to the client without changing the actual data. Since all the data is handled
- * by the server.
- * <p>
- * A useful resource used to compare mappings is <a href="https://minidigger.github.io/MiniMappingViewer/#/spigot">Mini's Mapping Viewer</a>
+ * General Java reflection handler, but specialized for Minecraft NMS reflection as well.
  *
  * @author Crypto Morin
- * @version 8.0.0
+ * @version 11.2.0
+ * @see com.cryptomorin.xseries.reflection.minecraft.MinecraftConnection
+ * @see com.cryptomorin.xseries.reflection.minecraft.NMSExtras
  */
-public final class ReflectionUtils {
+public final class XReflection {
     /**
      * We use reflection mainly to avoid writing a new class for version barrier.
      * The version barrier is for NMS that uses the Minecraft version as the main package name.
@@ -71,7 +66,14 @@ public final class ReflectionUtils {
     @Nullable
     public static final String NMS_VERSION = findNMSVersionString();
 
+    /**
+     * The current version of XSeries. Mostly used for the {@link com.cryptomorin.xseries.profiles.builder.XSkull} API.
+     */
+    @ApiStatus.Internal
+    public static final String XSERIES_VERSION = "11.2.0";
+
     @Nullable
+    @ApiStatus.Internal
     public static String findNMSVersionString() {
         // This needs to be right below VERSION because of initialization order.
         // This package loop is used to avoid implementation-dependant strings like Bukkit.getVersion() or Bukkit.getBukkitVersion()
@@ -151,7 +153,7 @@ public final class ReflectionUtils {
         // Bukkit.getVersion()       = git-Paper-364 (MC: 1.20.4)
         Matcher bukkitVer = Pattern
                 // <patch> is optional for first releases like "1.8-R0.1-SNAPSHOT"
-                .compile("^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)?")
+                .compile("^(?<major>\\d+)\\.(?<minor>\\d+)(?:\\.(?<patch>\\d+))?")
                 .matcher(Bukkit.getBukkitVersion());
         if (bukkitVer.find()) { // matches() won't work, we just want to match the start using "^"
             try {
@@ -190,6 +192,7 @@ public final class ReflectionUtils {
      * @return the patch number of the given minor version if recognized, otherwise null.
      * @since 7.0.0
      */
+    @Nullable
     public static Integer getLatestPatchNumberOf(int minorVersion) {
         if (minorVersion <= 0) throw new IllegalArgumentException("Minor version must be positive: " + minorVersion);
 
@@ -216,7 +219,8 @@ public final class ReflectionUtils {
                 /* 17 */ 1,//            \_!_/
                 /* 18 */ 2,
                 /* 19 */ 4,
-                /* 20 */ 4,
+                /* 20 */ 6,
+                /* 21 */ 0,
         };
 
         if (minorVersion > patches.length) return null;
@@ -228,83 +232,58 @@ public final class ReflectionUtils {
      */
     public static final String
             CRAFTBUKKIT_PACKAGE = Bukkit.getServer().getClass().getPackage().getName(),
-            NMS_PACKAGE = v(17, "net.minecraft.").orElse("net.minecraft.server." + NMS_VERSION + '.');
-    /**
-     * A nullable public accessible field only available in {@code EntityPlayer}.
-     * This can be null if the player is offline.
-     */
-    private static final MethodHandle PLAYER_CONNECTION;
-    /**
-     * Responsible for getting the NMS handler {@code EntityPlayer} object for the player.
-     * {@code CraftPlayer} is simply a wrapper for {@code EntityPlayer}.
-     * Used mainly for handling packet related operations.
-     * <p>
-     * This is also where the famous player {@code ping} field comes from!
-     */
-    private static final MethodHandle GET_HANDLE;
-    /**
-     * Sends a packet to the player's client through a {@code NetworkManager} which
-     * is where {@code ProtocolLib} controls packets by injecting channels!
-     */
-    private static final MethodHandle SEND_PACKET;
+            NMS_PACKAGE = v(17, "net.minecraft").orElse("net.minecraft.server." + NMS_VERSION);
+    public static final MinecraftMapping SUPPORTED_MAPPING;
+
 
     static {
-        Class<?> entityPlayer = getNMSClass("server.level", "EntityPlayer");
-        Class<?> craftPlayer = getCraftClass("entity.CraftPlayer");
-        Class<?> playerConnection = getNMSClass("server.network", "PlayerConnection");
-        Class<?> playerCommonConnection;
-        if (supports(20) && supportsPatch(2)) {
-            // The packet send method has been abstracted from ServerGamePacketListenerImpl to ServerCommonPacketListenerImpl in 1.20.2
-            playerCommonConnection = getNMSClass("server.network", "ServerCommonPacketListenerImpl");
+        MinecraftClassHandle entityPlayer = ofMinecraft()
+                .inPackage(MinecraftPackage.NMS, "server.level")
+                .map(MinecraftMapping.MOJANG, "ServerPlayer")
+                .map(MinecraftMapping.SPIGOT, "EntityPlayer");
+
+        if (ofMinecraft()
+                .inPackage(MinecraftPackage.NMS, "server.level")
+                .map(MinecraftMapping.MOJANG, "ServerPlayer")
+                .exists()) {
+            SUPPORTED_MAPPING = MinecraftMapping.MOJANG;
+        } else if (ofMinecraft()
+                .inPackage(MinecraftPackage.NMS, "server.level")
+                .map(MinecraftMapping.MOJANG, "EntityPlayer")
+                .exists()) {
+            SUPPORTED_MAPPING = MinecraftMapping.SPIGOT;
         } else {
-            playerCommonConnection = playerConnection;
+            throw new RuntimeException("Unknown Minecraft mapping " + getVersionInformation(), entityPlayer.catchError());
         }
-
-        MethodHandles.Lookup lookup = MethodHandles.lookup();
-        MethodHandle sendPacket = null, getHandle = null, connection = null;
-
-        try {
-            connection = lookup.findGetter(entityPlayer,
-                    v(20, "c").v(17, "b").orElse("playerConnection"), playerConnection);
-            getHandle = lookup.findVirtual(craftPlayer, "getHandle", MethodType.methodType(entityPlayer));
-            sendPacket = lookup.findVirtual(playerCommonConnection,
-                    v(20, 2, "b").v(18, "a").orElse("sendPacket"),
-                    MethodType.methodType(void.class, getNMSClass("network.protocol", "Packet")));
-        } catch (NoSuchMethodException | NoSuchFieldException | IllegalAccessException ex) {
-            ex.printStackTrace();
-        }
-
-        PLAYER_CONNECTION = connection;
-        SEND_PACKET = sendPacket;
-        GET_HANDLE = getHandle;
     }
 
-    private ReflectionUtils() {
-    }
+    private XReflection() {}
 
     /**
      * Gives the {@code handle} object if the server version is equal or greater than the given version.
-     * This method is purely for readability and should be always used with {@link VersionHandler#orElse(Object)}.
+     * This method is purely for readability and should be always used with {@link VersionHandle#orElse(Object)}.
      *
      * @see #v(int, int, Object)
-     * @see VersionHandler#orElse(Object)
+     * @see VersionHandle#orElse(Object)
      * @since 5.0.0
      */
-    public static <T> VersionHandler<T> v(int version, T handle) {
-        return new VersionHandler<>(version, handle);
+    public static <T> VersionHandle<T> v(int version, T handle) {
+        return new VersionHandle<>(version, handle);
     }
 
     /**
-     * Overload for {@link #v(int, T)} that supports patch versions
-     *
      * @since 9.5.0
      */
-    public static <T> VersionHandler<T> v(int version, int patch, T handle) {
-        return new VersionHandler<>(version, patch, handle);
+    public static <T> VersionHandle<T> v(int version, int patch, T handle) {
+        return new VersionHandle<>(version, patch, handle);
     }
 
-    public static <T> CallableVersionHandler<T> v(int version, Callable<T> handle) {
-        return new CallableVersionHandler<>(version, handle);
+    public static <T> VersionHandle<T> v(int version, Callable<T> handle) {
+        return new VersionHandle<>(version, handle);
+    }
+
+    public static <T> VersionHandle<T> v(int version, int patch, Callable<T> handle) {
+        return new VersionHandle<>(version, patch, handle);
     }
 
     /**
@@ -320,6 +299,14 @@ public final class ReflectionUtils {
     }
 
     /**
+     * A more friendly version of {@link #supports(int, int)} for people with OCD.
+     */
+    public static boolean supports(int majorNumber, int minorNumber, int patchNumber) {
+        if (majorNumber != 1) throw new IllegalArgumentException("Invalid major number: " + majorNumber);
+        return supports(minorNumber, patchNumber);
+    }
+
+    /**
      * Checks whether the server version is equal or greater than the given version.
      *
      * @param minorNumber the minor version to compare the server version with.
@@ -330,7 +317,7 @@ public final class ReflectionUtils {
      * @since 7.1.0
      */
     public static boolean supports(int minorNumber, int patchNumber) {
-        return MINOR_NUMBER == minorNumber ? supportsPatch(patchNumber) : supports(minorNumber);
+        return MINOR_NUMBER == minorNumber ? PATCH_NUMBER >= patchNumber : supports(minorNumber);
     }
 
     /**
@@ -340,7 +327,9 @@ public final class ReflectionUtils {
      * @return true if the version is equal or newer, otherwise false.
      * @see #PATCH_NUMBER
      * @since 7.0.0
+     * @deprecated use {@link #supports(int, int)}
      */
+    @Deprecated
     public static boolean supportsPatch(int patchNumber) {
         return PATCH_NUMBER >= patchNumber;
     }
@@ -352,15 +341,17 @@ public final class ReflectionUtils {
      * @param name        the name of the class.
      * @return the NMS class or null if not found.
      * @throws RuntimeException if the class could not be found.
+     * @deprecated use {@link #ofMinecraft()} instead.
      * @see #getNMSClass(String)
      * @since 4.0.0
      */
     @Nonnull
+    @Deprecated
     public static Class<?> getNMSClass(@Nullable String packageName, @Nonnull String name) {
         if (packageName != null && supports(17)) name = packageName + '.' + name;
 
         try {
-            return Class.forName(NMS_PACKAGE + name);
+            return Class.forName(NMS_PACKAGE + '.' + name);
         } catch (ClassNotFoundException ex) {
             throw new RuntimeException(ex);
         }
@@ -374,74 +365,12 @@ public final class ReflectionUtils {
      * @throws RuntimeException if the class could not be found.
      * @see #getNMSClass(String, String)
      * @since 1.0.0
+     * @deprecated use {@link #ofMinecraft()}
      */
     @Nonnull
+    @Deprecated
     public static Class<?> getNMSClass(@Nonnull String name) {
         return getNMSClass(null, name);
-    }
-
-    /**
-     * Sends a packet to the player asynchronously if they're online.
-     * Packets are thread-safe.
-     *
-     * @param player  the player to send the packet to.
-     * @param packets the packets to send.
-     * @return the async thread handling the packet.
-     * @see #sendPacketSync(Player, Object...)
-     * @since 1.0.0
-     */
-    @Nonnull
-    public static CompletableFuture<Void> sendPacket(@Nonnull Player player, @Nonnull Object... packets) {
-        return CompletableFuture.runAsync(() -> sendPacketSync(player, packets))
-                .exceptionally(ex -> {
-                    ex.printStackTrace();
-                    return null;
-                });
-    }
-
-    /**
-     * Sends a packet to the player synchronously if they're online.
-     *
-     * @param player  the player to send the packet to.
-     * @param packets the packets to send.
-     * @see #sendPacket(Player, Object...)
-     * @since 2.0.0
-     */
-    public static void sendPacketSync(@Nonnull Player player, @Nonnull Object... packets) {
-        try {
-            Object handle = GET_HANDLE.invoke(player);
-            Object connection = PLAYER_CONNECTION.invoke(handle);
-
-            // Checking if the connection is not null is enough. There is no need to check if the player is online.
-            if (connection != null) {
-                for (Object packet : packets) SEND_PACKET.invoke(connection, packet);
-            }
-        } catch (Throwable throwable) {
-            throwable.printStackTrace();
-        }
-    }
-
-    @Nullable
-    public static Object getHandle(@Nonnull Player player) {
-        Objects.requireNonNull(player, "Cannot get handle of null player");
-        try {
-            return GET_HANDLE.invoke(player);
-        } catch (Throwable throwable) {
-            throwable.printStackTrace();
-            return null;
-        }
-    }
-
-    @Nullable
-    public static Object getConnection(@Nonnull Player player) {
-        Objects.requireNonNull(player, "Cannot get connection of null player");
-        try {
-            Object handle = GET_HANDLE.invoke(player);
-            return PLAYER_CONNECTION.invoke(handle);
-        } catch (Throwable throwable) {
-            throwable.printStackTrace();
-            return null;
-        }
     }
 
     /**
@@ -451,8 +380,10 @@ public final class ReflectionUtils {
      * @return the CraftBukkit class or null if not found.
      * @throws RuntimeException if the class could not be found.
      * @since 1.0.0
+     * @deprecated use {@link #ofMinecraft()} instead.
      */
     @Nonnull
+    @Deprecated
     public static Class<?> getCraftClass(@Nonnull String name) {
         try {
             return Class.forName(CRAFTBUKKIT_PACKAGE + '.' + name);
@@ -467,6 +398,8 @@ public final class ReflectionUtils {
      *     Class EntityPlayer = ReflectionUtils.getNMSClass("...", "EntityPlayer");
      *     Class EntityPlayerArray = ReflectionUtils.toArrayClass(EntityPlayer);
      * }</pre>
+     * <p>
+     * Note that this doesn't work on primitive classes.
      *
      * @param clazz the class to get the array version of. You could use for multi-dimensions arrays too.
      * @throws RuntimeException if the class could not be found.
@@ -480,73 +413,198 @@ public final class ReflectionUtils {
         }
     }
 
-    public static final class VersionHandler<T> {
-        private int version, patch;
-        private T handle;
-
-        private VersionHandler(int version, T handle) {
-            this(version, 0, handle);
-        }
-
-        private VersionHandler(int version, int patch, T handle) {
-            if (supports(version) && supportsPatch(patch)) {
-                this.version = version;
-                this.patch = patch;
-                this.handle = handle;
-            }
-        }
-
-        public VersionHandler<T> v(int version, T handle) {
-            return v(version, 0, handle);
-        }
-
-        public VersionHandler<T> v(int version, int patch, T handle) {
-            if (version == this.version && patch == this.patch)
-                throw new IllegalArgumentException("Cannot have duplicate version handles for version: " + version + '.' + patch);
-            if (version > this.version && supports(version) && patch >= this.patch && supportsPatch(patch)) {
-                this.version = version;
-                this.patch = patch;
-                this.handle = handle;
-            }
-            return this;
-        }
-
-        /**
-         * If none of the previous version checks matched, it'll return this object.
-         */
-        public T orElse(T handle) {
-            return this.version == 0 ? handle : this.handle;
-        }
+    /**
+     * @since v9.0.0
+     */
+    public static MinecraftClassHandle ofMinecraft() {
+        return new MinecraftClassHandle(new ReflectiveNamespace());
     }
 
-    public static final class CallableVersionHandler<T> {
-        private int version;
-        private Callable<T> handle;
+    /**
+     * @since v9.0.0
+     */
+    public static DynamicClassHandle classHandle() {
+        return new DynamicClassHandle(new ReflectiveNamespace());
+    }
 
-        private CallableVersionHandler(int version, Callable<T> handle) {
-            if (supports(version)) {
-                this.version = version;
-                this.handle = handle;
+    /**
+     * @since v11.0.0
+     */
+    public static StaticClassHandle of(Class<?> clazz) {
+        return new StaticClassHandle(new ReflectiveNamespace(), clazz);
+    }
+
+
+    /**
+     * Read {@link ReflectiveNamespace} for more info.
+     * @since v11.0.0
+     */
+    public static ReflectiveNamespace namespaced() {
+        return new ReflectiveNamespace();
+    }
+
+    /**
+     * @since v9.0.0
+     */
+    @SafeVarargs
+    public static <T, H extends ReflectiveHandle<T>> AggregateReflectiveHandle<T, H> any(H... handles) {
+        return new AggregateReflectiveHandle<>(Arrays.stream(handles).map(x -> (Callable<H>) () -> x).collect(Collectors.toList()));
+    }
+
+    /**
+     * @since v9.0.0
+     */
+    @SafeVarargs
+    public static <T, H extends ReflectiveHandle<T>> AggregateReflectiveHandle<T, H> anyOf(Callable<H>... handles) {
+        return new AggregateReflectiveHandle<>(Arrays.asList(handles));
+    }
+
+    @ApiStatus.Internal
+    public static <T extends Throwable> T relativizeSuppressedExceptions(T ex) {
+        final StackTraceElement[] EMPTY_STACK_TRACE_ARRAY = new StackTraceElement[0];
+        StackTraceElement[] mainStackTrace = ex.getStackTrace();
+
+        for (Throwable suppressed : ex.getSuppressed()) {
+            StackTraceElement[] suppressedStackTrace = suppressed.getStackTrace();
+            List<StackTraceElement> relativized = new ArrayList<>(10);
+
+            for (int i = 0; i < suppressedStackTrace.length; i++) {
+                if (mainStackTrace.length <= i) {
+                    relativized = null;
+                    break;
+                }
+
+                StackTraceElement mainTrace = mainStackTrace[i];
+                StackTraceElement suppTrace = suppressedStackTrace[i];
+                if (mainTrace.equals(suppTrace)) {
+                    break;
+                } else {
+                    relativized.add(suppTrace);
+                }
+            }
+
+            if (relativized != null) {
+                // We might not know the line so let's not add this:
+                // if (!relativized.isEmpty()) relativized.remove(relativized.size() - 1);
+                suppressed.setStackTrace(relativized.toArray(EMPTY_STACK_TRACE_ARRAY));
             }
         }
+        return ex;
+    }
 
-        public CallableVersionHandler<T> v(int version, Callable<T> handle) {
-            if (version == this.version)
-                throw new IllegalArgumentException("Cannot have duplicate version handles for version: " + version);
-            if (version > this.version && supports(version)) {
-                this.version = version;
-                this.handle = handle;
+    @SuppressWarnings("unchecked")
+    private static <T extends Throwable> void throwException(Throwable exception) throws T {
+        throw (T) exception;
+    }
+
+    /**
+     * Throws a checked exception (see {@link Exception}) silently without forcing the programmer to handle it. This is usually considered
+     * a very bad practice, as those errors are meant to be handled, so please use sparingly. You should just
+     * create a {@link RuntimeException} instead and putting the checked exception as a cause if necessary.
+     * <h2>Usage</h2>
+     * <pre>{@code
+     *     void doStuff() throws IOException {}
+     *
+     *     void rethrowAsRuntime() {
+     *         try {
+     *             doStuff();
+     *         } catch (IOException ex) {
+     *             throw new RuntimeException(ex);
+     *         }
+     *     }
+     *
+     *     void ignoreTheLawsOfJavaQuantumMechanics() {
+     *         try {
+     *             doStuff();
+     *         } catch (IOException ex) {
+     *             throw XReflection.throwCheckedException(ex);
+     *         }
+     *     }
+     * }</pre>
+     * @return {@code null}, but it's intended to be thrown, this is a hacky trick to stop the IDE
+     *   from complaining about non-terminating statements.
+     */
+    public static RuntimeException throwCheckedException(Throwable exception) {
+        // The following commented statement is not needed because the exception was created somewhere else and the stacktrace reflects that.
+        // exception.setStackTrace(Arrays.stream(exception.getStackTrace()).skip(1).toArray(StackTraceElement[]::new));
+        throwException(exception);
+        return null; // Trick the compiler to stfu for "throw" terminating statements.
+    }
+
+    /**
+     * Adds the stacktrace of the current thread in case an error occurs in the given Future.
+     */
+    @ApiStatus.Experimental
+    public static <T> CompletableFuture<T> stacktrace(@Nonnull CompletableFuture<T> completableFuture) {
+        StackTraceElement[] currentStacktrace = Thread.currentThread().getStackTrace();
+        return completableFuture.whenComplete((value, ex) -> { // Gets called even when it's completed.
+            if (ex == null) {
+                // This happens if for example someone does:
+                // completableFuture.exceptionally(e -> { e.printStackTrace(); return null; })
+                completableFuture.complete(value);
+                return;
             }
-            return this;
-        }
 
-        public T orElse(Callable<T> handle) {
             try {
-                return (this.version == 0 ? handle : this.handle).call();
-            } catch (Exception e) {
-                e.printStackTrace();
-                return null;
+                // Remove these:
+                // at java.base/java.util.concurrent.CompletableFuture.encodeThrowable(CompletableFuture.java:315)
+                // at java.base/java.util.concurrent.CompletableFuture.completeThrowable(CompletableFuture.java:320)
+                // at java.base/java.util.concurrent.CompletableFuture$AsyncSupply.run(CompletableFuture.java:1770)
+                // at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+                // at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+                // at java.base/java.lang.Thread.run(Thread.java:1583)
+                StackTraceElement[] exStacktrace = ex.getStackTrace();
+                if (exStacktrace.length >= 3) {
+                    List<StackTraceElement> clearStacktrace = new ArrayList<>(Arrays.asList(exStacktrace));
+                    Collections.reverse(clearStacktrace);
+
+                    Iterator<StackTraceElement> iter = clearStacktrace.iterator();
+                    List<String> watchClassNames = Arrays.asList("java.util.concurrent.CompletableFuture",
+                            "java.util.concurrent.ThreadPoolExecutor", "java.util.concurrent.ForkJoinTask",
+                            "java.util.concurrent.ForkJoinWorkerThread", "java.util.concurrent.ForkJoinPool");
+                    List<String> watchMethodNames = Arrays.asList("postComplete", "encodeThrowable", "completeThrowable",
+                            "tryFire", "run", "runWorker", "scan", "exec", "doExec", "topLevelExec", "uniWhenComplete");
+                    while (iter.hasNext()) {
+                        StackTraceElement stackTraceElement = iter.next();
+                        String className = stackTraceElement.getClassName();
+                        String methodName = stackTraceElement.getMethodName();
+
+                        // Let's keep this just as an indicator.
+                        if (className.equals(Thread.class.getName())) continue;
+
+                        if (watchClassNames.stream().anyMatch(className::startsWith) &&
+                                watchMethodNames.stream().anyMatch(methodName::equals)) {
+                            iter.remove();
+                        } else {
+                            break;
+                        }
+                    }
+
+                    Collections.reverse(clearStacktrace);
+                    exStacktrace = clearStacktrace.toArray(new StackTraceElement[0]);
+                }
+
+                // Skip 2 -> the getStackTrace() method + this method
+                StackTraceElement[] finalCurrentStackTrace = Arrays.stream(currentStacktrace).skip(2).toArray(StackTraceElement[]::new);
+                ex.setStackTrace(concatenate(exStacktrace, finalCurrentStackTrace));
+            } catch (Throwable ex2) {
+                ex.addSuppressed(ex2);
+            } finally {
+                completableFuture.completeExceptionally(ex);
             }
-        }
+        });
+    }
+
+    @ApiStatus.Internal
+    public static <T> T[] concatenate(T[] a, T[] b) {
+        int aLen = a.length;
+        int bLen = b.length;
+
+        @SuppressWarnings("unchecked")
+        T[] c = (T[]) java.lang.reflect.Array.newInstance(a.getClass().getComponentType(), aLen + bLen);
+        System.arraycopy(a, 0, c, 0, aLen);
+        System.arraycopy(b, 0, c, aLen, bLen);
+
+        return c;
     }
 }

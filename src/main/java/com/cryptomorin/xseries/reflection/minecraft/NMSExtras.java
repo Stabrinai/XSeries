@@ -19,8 +19,10 @@
  * FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
  * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-package com.cryptomorin.xseries;
+package com.cryptomorin.xseries.reflection.minecraft;
 
+import com.cryptomorin.xseries.XSound;
+import com.cryptomorin.xseries.reflection.XReflection;
 import org.bukkit.Chunk;
 import org.bukkit.DyeColor;
 import org.bukkit.Location;
@@ -38,7 +40,7 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.util.*;
 
-import static com.cryptomorin.xseries.ReflectionUtils.*;
+import static com.cryptomorin.xseries.reflection.XReflection.*;
 
 /**
  * A class that provides various different essential features that the API
@@ -47,7 +49,7 @@ import static com.cryptomorin.xseries.ReflectionUtils.*;
  * All the parameters are non-null.
  *
  * @author Crypto Morin
- * @version 5.4.0.0.0.1
+ * @version 5.5.0
  */
 public final class NMSExtras {
     public static final Class<?> EntityLivingClass = getNMSClass("world.entity", "EntityLiving");
@@ -121,7 +123,9 @@ public final class NMSExtras {
             Class<?> DataWatcherObjectClass = getNMSClass("network.syncher", "DataWatcherObject");
 
             getHandle = lookup.findVirtual(CraftEntityClass, "getHandle", MethodType.methodType(nmsEntity));
-            getDataWatcher = lookup.findVirtual(nmsEntity, v(20, 4, "an")
+            getDataWatcher = lookup.findVirtual(nmsEntity, v(21, "ar")
+                            .v(20, 5, "ap")
+                            .v(20, 4, "an")
                             .v(20, 2, "al")
                             .v(19, "aj")
                             .v(18, "ai")
@@ -133,15 +137,17 @@ public final class NMSExtras {
             //     return this.b(datawatcherobject).b();
             // }
             dataWatcherGetItem = lookup.findVirtual(DataWatcherClass,
-                    v(20, "b").v(18, "a").orElse("get"),
-                    MethodType.methodType(Object.class, DataWatcherObjectClass)); //  private <T> Item<T> c(DataWatcherObject<T> datawatcherobject)
+                    v(20, 5, "a").v(20, "b").v(18, "a").orElse("get"),
+                    MethodType.methodType(Object.class, DataWatcherObjectClass));
 
             /*
                 public <T> void b(DataWatcherObject<T> datawatcherobject, T t0) {
                     this.a(datawatcherobject, t0, false);
                 }
              */
-            dataWatcherSetItem = lookup.findVirtual(DataWatcherClass, v(18, "b").orElse("set"), MethodType.methodType(void.class, DataWatcherObjectClass, Object.class)); //  private <T> Item<T> c(DataWatcherObject<T> datawatcherobject)
+            dataWatcherSetItem = lookup.findVirtual(DataWatcherClass,
+                    v(20, 5, "a").v(18, "b").orElse("set"),
+                    MethodType.methodType(void.class, DataWatcherObjectClass, Object.class));
 
             getBukkitEntity = lookup.findVirtual(nmsEntity, "getBukkitEntity", MethodType.methodType(craftEntity));
             entityHandle = lookup.findVirtual(craftEntity, "getHandle", MethodType.methodType(nmsEntity));
@@ -163,7 +169,7 @@ public final class NMSExtras {
                         double.class, double.class, double.class, float.class, float.class,
                         nmsEntityType, int.class, nmsVec3D)
                 );
-                if (ReflectionUtils.supports(19)) spawnTypes.add(double.class);
+                if (XReflection.supports(19)) spawnTypes.add(double.class);
                 entityPacket = lookup.findConstructor(getNMSClass("network.protocol.game", "PacketPlayOutSpawnEntity"),
                         MethodType.methodType(void.class, spawnTypes));
             }
@@ -246,7 +252,7 @@ public final class NMSExtras {
 
                 tileEntitySign = lookup.findConstructor(TileEntitySign, MethodType.methodType(void.class, blockPos, BLOCK_DATA));
                 tileEntitySign_getUpdatePacket = lookup.findVirtual(TileEntitySign,
-                        v(20, 4, "m").v(20, "j").v(19, "f").v(18, "c").orElse("getUpdatePacket"),
+                        v(20, 5, "l").v(20, 4, "m").v(20, "j").v(19, "f").v(18, "c").orElse("getUpdatePacket"),
                         MethodType.methodType(PacketPlayOutTileEntityData));
 
                 if (supports(20)) {
@@ -256,11 +262,13 @@ public final class NMSExtras {
                     // }
                     tileEntitySign_setLine = lookup.findVirtual(TileEntitySign, "a", MethodType.methodType(boolean.class, SignText, boolean.class));
 
+                    Class<?> IChatBaseComponentArray = XReflection.of(IChatBaseComponent).asArray().unreflect();
+
                     // public SignText(net.minecraft.network.chat.IChatBaseComponent[] var0, IChatBaseComponent[] var1,
                     // EnumColor var2, boolean var3) {
                     Class<?> EnumColor = getNMSClass("world.item.EnumColor");
                     signText = lookup.findConstructor(SignText, MethodType.methodType(void.class,
-                            IChatBaseComponent.arrayType(), IChatBaseComponent.arrayType(), EnumColor, boolean.class));
+                            IChatBaseComponentArray, IChatBaseComponentArray, EnumColor, boolean.class));
                 } else {
                     tileEntitySign_setLine = lookup.findVirtual(TileEntitySign, "a", MethodType.methodType(void.class, int.class, IChatBaseComponent, IChatBaseComponent));
                 }
@@ -312,7 +320,7 @@ public final class NMSExtras {
     public static void setExp(Player player, float bar, int lvl, int exp) {
         try {
             Object packet = EXP_PACKET.invoke(bar, lvl, exp);
-            sendPacket(player, packet);
+            MinecraftConnection.sendPacket(player, packet);
         } catch (Throwable ex) {
             ex.printStackTrace();
         }
@@ -342,7 +350,7 @@ public final class NMSExtras {
 
                 for (Player player : players) {
                     if (sound) XSound.ENTITY_LIGHTNING_BOLT_THUNDER.record().soundPlayer().forPlayers(player).play();
-                    sendPacket(player, packet);
+                    MinecraftConnection.sendPacket(player, packet);
                 }
             } else {
                 Class<?> nmsEntityType = getNMSClass("world.entity", "EntityTypes");
@@ -356,7 +364,7 @@ public final class NMSExtras {
 
                 for (Player player : players) {
                     if (sound) XSound.ENTITY_LIGHTNING_BOLT_THUNDER.record().soundPlayer().forPlayers(player).play();
-                    sendPacket(player, packet);
+                    MinecraftConnection.sendPacket(player, packet);
                 }
             }
         } catch (Throwable throwable) {
@@ -566,7 +574,7 @@ public final class NMSExtras {
                 ANIMATION_ENTITY_ID.invoke(packet, entity.getEntityId());
             }
 
-            for (Player player : players) sendPacket(player, packet);
+            for (Player player : players) MinecraftConnection.sendPacket(player, packet);
         } catch (Throwable throwable) {
             throwable.printStackTrace();
         }
@@ -642,7 +650,7 @@ public final class NMSExtras {
                 SHORTS_OR_INFO.invoke(packet, array);
             }
 
-            sendPacketSync(player, packet);
+            MinecraftConnection.sendPacket(player, packet);
         } catch (Throwable throwable) {
             throwable.printStackTrace();
         }
@@ -662,7 +670,7 @@ public final class NMSExtras {
             Object tileSign = TILE_ENTITY_SIGN.invoke(position, signBlockData);
             if (supports(20)) {
                 // When can we use this without blocks... player.openSign();
-                Class<?> EnumColor = ReflectionUtils.getNMSClass("world.item.EnumColor");
+                Class<?> EnumColor = XReflection.getNMSClass("world.item.EnumColor");
                 Object enumColor = null;
                 for (Field field : EnumColor.getFields()) {
                     Object color = field.get(null);
@@ -687,7 +695,7 @@ public final class NMSExtras {
                     v(20, PACKET_PLAY_OUT_OPEN_SIGN_EDITOR.invoke(position, true))
                             .orElse(PACKET_PLAY_OUT_OPEN_SIGN_EDITOR.invoke(position));
 
-            sendPacket(player, blockChangePacket, signLinesUpdatePacket, signPacket);
+            MinecraftConnection.sendPacket(player, blockChangePacket, signLinesUpdatePacket, signPacket);
         } catch (Throwable x) {
             x.printStackTrace();
         }
