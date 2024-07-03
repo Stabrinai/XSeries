@@ -240,21 +240,29 @@ public final class Particles {
     /**
      * Spawns a circle.
      * Most common shapes that can be built:
-     * <pre>
+     * <pre>{@code
      *     The simplest shape, a circle
      *     circle(3, 3, 1, 30, 0, display);
      *
      *     An ellipse only has a different radius for one of its waves.
      *     circle(3, 4, 1, 30, 0, display);
-     * </pre>
+     * }</pre>
+     * <p>
+     * <h2>Animated Circle</h2>
+     * The following code spawns a circle with its particles moving outwards smoothly.
+     * <pre>{@code
+     *     int radius = 3;
+     *     var display = ParticleDisplay.of(XParticle.DUST).withLocation(...).directional().withExtra(1);
+     *     circle(radius, radius, 1, 30, 0, display);
+     * }</pre>
      * <p>
      * Tutorial: https://www.spigotmc.org/threads/111238/
      * Uses its own unique directional pattern.
      *
-     * @param radius    the first radius of the circle.
-     * @param radius2   the second radius of the circle.
-     * @param extension the extension of the circle waves.
-     * @param rate      the rate of the circle points.
+     * @param radius    the first radius of the circle. (2 is normal)
+     * @param radius2   the second radius of the circle. (creates an ellipse radiuses are different)
+     * @param extension the extension of the circle waves. (1 is normal)
+     * @param rate      the rate of the circle points. (Normally ~30)
      * @param limit     the limit of the circle. Usually from 0 to PII.
      *                  If you choose 0, it'll be a full circle {@link #PII}
      *                  If you choose -1, it'll do a full loop based on the extension.
@@ -798,7 +806,9 @@ public final class Particles {
         for (int i = 0; i < 7; i++) {
             // Get the rainbow color in order.
             int[] rgb = rainbow[i];
-            display = ParticleDisplay.colored(display.getLocation(), rgb[0], rgb[1], rgb[2], 1);
+            display = ParticleDisplay.of(XParticle.DUST)
+                    .withLocation(display.getLocation())
+                    .withColor(new java.awt.Color(rgb[0], rgb[1], rgb[2]), 1);
 
             // Display the same color multiple times.
             for (int layer = 0; layer < layers; layer++) {
@@ -1658,10 +1668,10 @@ public final class Particles {
     public static BooleanSupplier dnaReplication(double radius, double rate, int speed, double extension,
                                                  int height, int hydrogenBondDist, ParticleDisplay display) {
         // We'll use the common nucleotide colors.
-        ParticleDisplay adenine = ParticleDisplay.colored(null, java.awt.Color.BLUE, 1); // Blue
-        ParticleDisplay thymine = ParticleDisplay.colored(null, java.awt.Color.YELLOW, 1); // Yellow
-        ParticleDisplay guanine = ParticleDisplay.colored(null, java.awt.Color.GREEN, 1); // Green
-        ParticleDisplay cytosine = ParticleDisplay.colored(null, java.awt.Color.RED, 1); // Red
+        ParticleDisplay adenine = ParticleDisplay.of(XParticle.DUST).withColor(java.awt.Color.BLUE, 1); // Blue
+        ParticleDisplay thymine = ParticleDisplay.of(XParticle.DUST).withColor(java.awt.Color.YELLOW, 1); // Yellow
+        ParticleDisplay guanine = ParticleDisplay.of(XParticle.DUST).withColor(java.awt.Color.GREEN, 1); // Green
+        ParticleDisplay cytosine = ParticleDisplay.of(XParticle.DUST).withColor(java.awt.Color.RED, 1); // Red
 
         return new BooleanSupplier() {
             double y = 0;
@@ -2264,7 +2274,7 @@ public final class Particles {
             for (int j = 0; j < colsB; j++) {
                 float sum = 0;
                 for (int k = 0; k < colsA; k++) {
-                    sum += a[i][k] * b[k][j];
+                    sum += (float) (a[i][k] * b[k][j]);
                 }
                 result[i][j] = sum;
             }
@@ -2627,7 +2637,7 @@ public final class Particles {
      */
     public static BooleanSupplier explosionWave(double rate, ParticleDisplay display, ParticleDisplay secDisplay) {
         return new BooleanSupplier() {
-            final double addition = Math.PI * 0.1;
+            static final double addition = Math.PI * 0.1;
             final double rateDiv = Math.PI / rate;
             double times = Math.PI / 4;
             boolean done = false;

@@ -29,7 +29,6 @@ public class ConstructorMemberHandle extends MemberHandle {
         return this;
     }
 
-
     @Override
     public MethodHandle reflect() throws ReflectiveOperationException {
         if (isFinal) throw new UnsupportedOperationException("Constructor cannot be final: " + this);
@@ -49,6 +48,15 @@ public class ConstructorMemberHandle extends MemberHandle {
     @Override
     public Constructor<?> reflectJvm() throws ReflectiveOperationException {
         return handleAccessible(clazz.unreflect().getDeclaredConstructor(parameterTypes));
+    }
+
+    @Override
+    public ConstructorMemberHandle clone() {
+        ConstructorMemberHandle handle = new ConstructorMemberHandle(clazz);
+        handle.parameterTypes = this.parameterTypes;
+        handle.isFinal = this.isFinal;
+        handle.makeAccessible = this.makeAccessible;
+        return handle;
     }
 
     @Override

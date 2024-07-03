@@ -19,7 +19,7 @@ import java.util.Objects;
 /**
  * A handle for using reflection for {@link Field}.
  */
-public class FieldMemberHandle extends NamedMemberHandle {
+public class FieldMemberHandle extends FlaggedNamedMemberHandle {
     public static final MethodHandle MODIFIERS_FIELD;
 
     public static final DynamicClassHandle VarHandle = XReflection.classHandle()
@@ -39,7 +39,7 @@ public class FieldMemberHandle extends NamedMemberHandle {
         MethodHandle modifierFieldJvm = null;
 
         try {
-            modifierFieldJvm = XReflection.of(Field.class).setterField()
+            modifierFieldJvm = XReflection.of(Field.class).field().setter()
                     .named("modifiers").returns(int.class).unreflect();
         } catch (Exception ignored) {
             // Java 18+
@@ -105,6 +105,17 @@ public class FieldMemberHandle extends NamedMemberHandle {
     public FieldMemberHandle returns(ClassHandle clazz) {
         super.returns(clazz);
         return this;
+    }
+
+    @Override
+    public FieldMemberHandle clone() {
+        FieldMemberHandle handle = new FieldMemberHandle(clazz);
+        handle.returnType = this.returnType;
+        handle.getter = this.getter;
+        handle.isFinal = this.isFinal;
+        handle.makeAccessible = this.makeAccessible;
+        handle.names.addAll(this.names);
+        return handle;
     }
 
     @Override

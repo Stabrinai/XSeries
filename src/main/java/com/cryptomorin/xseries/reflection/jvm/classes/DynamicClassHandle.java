@@ -31,6 +31,7 @@ public class DynamicClassHandle extends ClassHandle {
     }
 
     public DynamicClassHandle inPackage(@Nonnull PackageHandle packageHandle) {
+        // noinspection PatternValidation
         return inPackage(packageHandle, "");
     }
 
@@ -71,6 +72,16 @@ public class DynamicClassHandle extends ClassHandle {
         }
 
         return classNames;
+    }
+
+    @Override
+    public DynamicClassHandle clone() {
+        DynamicClassHandle handle = new DynamicClassHandle(namespace);
+        handle.array = this.array;
+        handle.parent = this.parent;
+        handle.packageName = this.packageName;
+        handle.classNames.addAll(this.classNames);
+        return handle;
     }
 
     @Override
